@@ -1,7 +1,8 @@
 -- 1. 用于在postgresql地理空间数据库中构建GPS站点信息表
 -- 创建GPS站点信息表
 -- 内容：
--- 站点ID、站点名称、站点等级、经度、纬度、高程、状态 ，设备开始运行时间、备注 等信息
+-- 站点ID、站点名称（通常不重复，本项目构建时默认不重复，若遇到问需要考虑）、
+-- 站点等级、经度、纬度、高程、状态 ，设备开始运行时间、备注 等信息
 CREATE TABLE gps_station_info (
     station_id SERIAL PRIMARY KEY,          -- 站点ID
     station_name VARCHAR(100) NOT NULL,     -- 站点名称
@@ -50,6 +51,11 @@ CREATE OR REPLACE FUNCTION insert_gps_station(
     p_remarks TEXT
 ) RETURNS VOID AS $$
 BEGIN -- 存储过程开始
+-- 3.1 检查站点名称是否重复，若重复则抛出异常
+if EXISTS (SELECT 1 FROM gps_station_info WHERE station_name = p_station_name) THEN
+    RAISE EXCEPTION 'Station name % already exists.', p_station_name;
+END IF;
+
     INSERT INTO gps_station_info (
         station_name, station_level, longitude, latitude, elevation, status, operational_start_time, remarks
     ) VALUES (
@@ -75,3 +81,30 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql; -- 存储过程结束
+
+-- 5.创建用于更新GPS站点状态的存储过程
+-- 更新内容：
+-- 主要为根据站点名称更新站点状态和备注信息
+-- 使用示例：
+-- SELECT update_gps_station_status('Station A', 'Inactive', 'Station temporarily out of service');
+CREATE OR REPLACE FUNCTION update_gps_station_status(
+    p_station_name VARCHAR,        -- 站点名称
+    p_status VARCHAR,        -- 新状态
+    p_remarks TEXT           -- 备注信息
+) RETURNS VOID AS $$
+BEGIN
+-- 5.1 检查站点ID是否存在，若不存在则抛出异常
+if NOT EXISTS (SELECT 1 FROM gps_station_info WHERE station_id = p_station_id) THEN
+    RAISE EXCEPTION 'Station ID % does not exist.', p_station_id;
+END IF;
+-- 5.2 检查状态是否为空，若为空则抛出异常
+if p_status IS NULL OR p_status = '' THEN
+    RAISE EXCEPTION 'Status cannot be null or empty.';
+END IF;
+if 
+    UPDATE gps_station_info
+    SET status = p_status,
+        remarks = COALESCE(remarks, '') || ' | ' || p_remarks || ' (Updated on ' || CURRENT_TIMESTAMP || ')'
+    WHERE station_name = p_station_name;
+END;
+
