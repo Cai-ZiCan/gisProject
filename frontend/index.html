@@ -25,6 +25,63 @@
         .legend-content { display: flex; height: 280px; padding: 0 5px; }
         #legend-image { width: 20px; height: 100%; object-fit: fill; border: 1px solid #eee; }
         .legend-labels { display: flex; flex-direction: column; justify-content: space-between; margin-left: 10px; font-size: 12px; font-weight: bold; height: 100%; color: #333; }
+
+        /* GIS 工具栏样式 */
+        .gis-toolbar {
+            position: absolute;
+            top: 80px; /* 避开左上角的缩放控件(通常OpenLayers默认在左上) */
+            left: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .gis-tool-btn {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 20px;
+            color: #555;
+            position: relative;
+        }
+        .gis-tool-btn:hover {
+            background: #fff;
+            color: #1890ff;
+            box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+        }
+        .gis-tool-btn.active {
+            background: #e6f7ff;
+            color: #1890ff;
+            border-color: #1890ff;
+        }
+        /* Tooltip */
+        .gis-tool-btn::after {
+            content: attr(data-title);
+            position: absolute;
+            left: 50px;
+            background: rgba(0,0,0,0.75);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .gis-tool-btn:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
     </style>
 </head>
 <body>
@@ -56,7 +113,7 @@
     <!-- 引入分离后的 JavaScript 模块 -->
     <script src="js/config.js"></script>
     <script src="js/layers.js"></script>
-    <script src="js/layerControls.js"></script>
+    <script src="js/Controls.js"></script>
     <script src="js/gisAnalysis.js"></script>
     <script src="js/main.js"></script>
 </body>

@@ -14,3 +14,4 @@ const GISAnalysis = {
         console.log(`Performing ${type} analysis with params:`, params);
     }
 };
+

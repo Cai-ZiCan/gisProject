@@ -35,4 +35,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof GISAnalysis !== 'undefined' && GISAnalysis.init) {
         GISAnalysis.init(map);
     }
+
+    // 初始化左侧 GIS 工具栏 (来自 Controls.js)
+    if (typeof initGISTools === 'function') {
+        initGISTools(map);
+    }
 });
