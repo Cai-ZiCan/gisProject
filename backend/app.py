@@ -82,5 +82,26 @@ def get_layer_info():
     }
     return jsonify(metadata)
 
+@app.route('/api/layer-metadata/<layer_name>', methods=['GET'])
+def get_layer_metadata(layer_name):
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            sql = "SELECT * FROM deformation_layer_info WHERE layer_name = %s"
+            cur.execute(sql, (layer_name,))
+            row = cur.fetchone()
+            
+            if row:
+                return jsonify(row)
+            else:
+                return jsonify({"error": "Layer not found"}), 404
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

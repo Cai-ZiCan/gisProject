@@ -1,3 +1,7 @@
+
+--设置工作的库为defomation_db
+
+
 -- 1. 用于在postgresql地理空间数据库中构建GPS站点信息表
 -- 创建GPS站点信息表
 -- 内容：
@@ -93,18 +97,19 @@ CREATE OR REPLACE FUNCTION update_gps_station_status(
     p_remarks TEXT           -- 备注信息
 ) RETURNS VOID AS $$
 BEGIN
--- 5.1 检查站点ID是否存在，若不存在则抛出异常
-if NOT EXISTS (SELECT 1 FROM gps_station_info WHERE station_id = p_station_id) THEN
-    RAISE EXCEPTION 'Station ID % does not exist.', p_station_id;
+-- 5.1 检查站点名称是否存在，若不存在则抛出异常
+if NOT EXISTS (SELECT 1 FROM gps_station_info WHERE station_name = p_station_name) THEN
+    RAISE EXCEPTION 'Station Name % does not exist.', p_station_name;
 END IF;
 -- 5.2 检查状态是否为空，若为空则抛出异常
 if p_status IS NULL OR p_status = '' THEN
     RAISE EXCEPTION 'Status cannot be null or empty.';
 END IF;
-if 
+
     UPDATE gps_station_info
     SET status = p_status,
         remarks = COALESCE(remarks, '') || ' | ' || p_remarks || ' (Updated on ' || CURRENT_TIMESTAMP || ')'
     WHERE station_name = p_station_name;
 END;
+$$ LANGUAGE plpgsql;
 

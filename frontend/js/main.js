@@ -24,8 +24,22 @@ document.addEventListener('DOMContentLoaded', function() {
         updateLegend(); 
     };
 
+    // 初始化图层透明度控制 (来自 Controls.js)
+    // 传入 map 便于自动扫描所有可调节图层
+    if (typeof initOpacityControls === 'function') {
+        console.info('[Opacity] calling initOpacityControls');
+        const layersDict = {};
+        if (typeof wmsLayer1 !== 'undefined') layersDict['deformation1'] = wmsLayer1;
+        if (typeof wmsLayer2 !== 'undefined') layersDict['deformation2'] = wmsLayer2;
+        initOpacityControls(map, layersDict);
+    }
+
     // 页面加载后立即初始化图例
-    updateLegend();
+    try {
+        updateLegend();
+    } catch (err) {
+        console.error("Error updating legend:", err);
+    }
     
     // 初始状态确认 (虽然 layers.js 中已经设置了 initial visible, 但这里再次确认逻辑一致性)
     wmsLayer1.setVisible(true);
@@ -36,8 +50,4 @@ document.addEventListener('DOMContentLoaded', function() {
         GISAnalysis.init(map);
     }
 
-    // 初始化左侧 GIS 工具栏 (来自 Controls.js)
-    if (typeof initGISTools === 'function') {
-        initGISTools(map);
-    }
 });

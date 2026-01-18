@@ -1,4 +1,6 @@
 -- 用于在postsql地理空间数据库中构建矿井信息表
+--设置工作的库
+
 
 -- 1.创建矿井信息表
 -- 内容：
@@ -26,13 +28,13 @@ CHECK (
 
 --2.创建插入矿井信息的存储过程
 -- 用于向mine_info表中插入新矿井信息
-"""
+---
 -- 使用示例：
-SELECT insert_mine_info(
-    'Mine A', 'Coal', 'Level 1', 120.123456, 30.123456,
-    'Active', '2023-01-01 00:00:00', NULL, 'Initial setup'
-);
-"""
+-- SELECT insert_mine_info(
+--    'Mine A', 'Coal', 'Level 1', 120.123456, 30.123456,
+--    'Active', '2023-01-01 00:00:00', NULL, 'Initial setup'
+--);
+---
 CREATE OR REPLACE FUNCTION insert_mine_info(
     p_mine_name VARCHAR,               -- 矿井名称
     p_mine_type VARCHAR,               -- 矿井类型
@@ -66,6 +68,7 @@ BEGIN -- 存储过程开始
         p_extraction_status, p_extraction_start_time, p_extraction_end_time, p_remarks
     );
 END;
+$$ LANGUAGE plpgsql; -- 存储过程结束
 
 --3.更新矿井开采状态的存储过程
 -- 用于更新矿井的开采状态及相关时间信息
@@ -94,3 +97,4 @@ BEGIN
         remarks = COALESCE(remarks, '') || ' | ' || COALESCE(p_remarks, '')
     WHERE mine_name = p_mine_name;
 END;
+$$ LANGUAGE plpgsql; -- 存储过程结束

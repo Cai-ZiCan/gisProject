@@ -12,19 +12,39 @@
         #map { width: 100%; height: 100%; }
         .popup { background: white; padding: 10px; border-radius: 4px; border: 1px solid #ccc; min-width: 150px; }
         
-        .layer-switcher { position: absolute; top: 10px; right: 10px; z-index: 1000; background: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); min-width: 180px; }
+        .layer-switcher { position: relative; margin-bottom: 10px; background: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); min-width: 180px; pointer-events: auto; }
         .layer-item { margin-bottom: 8px; display: flex; align-items: center; cursor: pointer; font-size: 14px; }
         .layer-item input { margin-right: 8px; }
 
         /* 图例面板样式 */
         #legend-container {
-            position: absolute; bottom: 20px; right: 20px; z-index: 1000;
+            position: relative; margin-top: auto; 
             background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px;
             box-shadow: 0 2px 15px rgba(0,0,0,0.25); border: 1px solid #ddd; display: none;
+            pointer-events: auto;
+        }
+        
+        /* 布局容器 */
+        .right-panel-container {
+            position: absolute;
+            top: 10px; right: 10px; bottom: 20px;
+            display: flex; flex-direction: column; align-items: flex-end;
+            pointer-events: none; z-index: 1000;
+            max-width: 250px;
         }
         .legend-content { display: flex; height: 280px; padding: 0 5px; }
         #legend-image { width: 20px; height: 100%; object-fit: fill; border: 1px solid #eee; }
         .legend-labels { display: flex; flex-direction: column; justify-content: space-between; margin-left: 10px; font-size: 12px; font-weight: bold; height: 100%; color: #333; }
+
+        /* 图层控制 + 透明度控制布局 */
+        .controls-row { display: flex; gap: 10px; align-items: flex-start; pointer-events: auto; }
+        .opacity-control { min-width: 200px; background: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); border: 1px solid #e0e0e0; }
+        .opacity-control h4 { margin: 0 0 10px 0; font-size: 15px; }
+        .opacity-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; font-size: 13px; }
+        #opacity-layer-select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; background: white; }
+        .slider-row { display: flex; align-items: center; gap: 8px; }
+        #opacity-slider { flex: 1; }
+        #opacity-value { width: 46px; text-align: right; font-weight: bold; color: #333; }
 
         /* GIS 工具栏样式 */
         .gis-toolbar {
@@ -83,32 +103,58 @@
             visibility: visible;
         }
     </style>
+
 </head>
 <body>
     <h2>📍 南加州洛杉矶盆地垂直形变场展示</h2>
-    <div id="map-container">
+    <div id="map-container"> 
         <div id="map"></div>
         
-        <div class="layer-switcher">
-            <h4>图层控制</h4>
-            <div class="layer-item"><input type="checkbox" id="chk-base" checked><label>街道底图</label></div>
-            <div class="layer-item"><input type="checkbox" id="chk-satellite"><label>卫星影像</label></div>
-            <div class="layer-item"><input type="checkbox" id="chk-deformation1" checked><label>15-18形变场</label></div>
-            <div class="layer-item"><input type="checkbox" id="chk-deformation2" checked><label>15-25形变场</label></div>
+        <div class="right-panel-container">
+            <div class="controls-row">
+                <div class="layer-switcher">
+                    <h4>图层控制</h4>
+                    <div class="layer-item"><input type="checkbox" id="chk-base" checked><label>街道底图</label></div>
+                    <div class="layer-item"><input type="checkbox" id="chk-satellite"><label>卫星影像</label></div>
+                    <div class="layer-item"><input type="checkbox" id="chk-deformation1" checked><label class="layer-label" data-layer-name="v_mean_cropped_15_18" style="cursor: pointer; color: blue; text-decoration: underline;" title="点击查看元数据">15-18形变场</label></div>
+                    <div class="layer-item"><input type="checkbox" id="chk-deformation2" checked><label class="layer-label" data-layer-name="v_mean_cropped_15_25" style="cursor: pointer; color: blue; text-decoration: underline;" title="点击查看元数据">15-25形变场</label></div>
+                </div>
 
-        </div>
+                <div class="opacity-control">
+                    <h4>透明度控制</h4>
+                    <div class="opacity-row">
+                        <label for="opacity-layer-select">目标图层</label>
+                        <select id="opacity-layer-select">
+                            <option value="">请选择</option>
+                        </select>
+                    </div>
+                    <div class="opacity-row slider-row">
+                        <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="1" disabled>
+                        <span id="opacity-value">100%</span>
+                    </div>
+                </div>
+            </div>
 
-        <div id="legend-container">
-            <div style="font-weight:bold; font-size:13px; margin-bottom:8px; text-align:center;">形变速率 (mm/yr)</div>
-            <div class="legend-content">
-                <img id="legend-image">
-                <div class="legend-labels">
-                    <span>15</span><span>10</span><span>5</span><span>0</span><span>-5</span><span>-10</span><span>-15</span><span>-20</span>
+            <div id="legend-container">
+                <div style="font-weight:bold; font-size:13px; margin-bottom:8px; text-align:center;">形变速率 (mm/yr)</div>
+                <div class="legend-content">
+                    <img id="legend-image">
+                    <div class="legend-labels">
+                        <span>15</span><span>10</span><span>5</span><span>0</span><span>-5</span><span>-10</span><span>-15</span><span>-20</span>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
+
+    <div id="metadata-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:20px; border-radius:8px; box-shadow:0 0 15px rgba(0,0,0,0.3); z-index:2000; min-width:300px; max-width:90%;">
+        <h3 id="metadata-title" style="margin-top:0;">图层详情</h3>
+        <div id="metadata-content" style="margin:15px 0; font-size:14px; line-height:1.6;"></div>
+        <div style="text-align:right;">
+            <button onclick="document.getElementById('metadata-modal').style.display='none'" style="padding:6px 12px; cursor:pointer; background:#eee; border:1px solid #ccc; border-radius:4px;">关闭</button>
+        </div>
+    </div>
 
     <!-- 引入分离后的 JavaScript 模块 -->
     <script src="js/config.js"></script>
