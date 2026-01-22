@@ -132,14 +132,34 @@ function initOpacityControls(map = null, extraLayers = {}) {
  * @param {ol.Map} map OpenLayers Map 对象
  */
 function initGISTools(map) {
+    console.log('[GIS] initGISTools called');
     const mapContainer = document.getElementById('map-container');
-    if (!mapContainer) return;
+    if (!mapContainer) {
+        console.error("Map container not found for GIS tools");
+        return;
+    }
 
-    // 创建工具栏容器
-    const toolbar = document.createElement('div');
-    toolbar.className = 'gis-toolbar';
-    toolbar.id = 'gis-tools-panel';
+    // 复用页面已有的工具栏占位容器，若不存在则创建
+    let toolbar = document.getElementById('gis-toolbar');
+    if (!toolbar) {
+        console.log('[GIS] Creating new toolbar element');
+        toolbar = document.createElement('div');
+        toolbar.className = 'gis-toolbar';
+        toolbar.id = 'gis-toolbar';
+        // 确保添加到 DOM
+        mapContainer.appendChild(toolbar);
+    } else {
+        console.log('[GIS] Found existing toolbar element');
+        // 如果元素存在但不在 mapContainer 内（防御性编程）
+        if (toolbar.parentNode !== mapContainer) {
+            mapContainer.appendChild(toolbar);
+        }
+    }
 
+    // 清空后再挂载按钮，避免重复渲染
+    toolbar.innerHTML = '';
+    // 强制可见性
+    toolbar.style.display = 'flex';
     // 定义工具列表
     const tools = [
         {
@@ -157,14 +177,22 @@ function initGISTools(map) {
     ];
 
     // 动态生成按钮
+    console.log('[GIS] Generating tools:', tools.length);
     tools.forEach(tool => {
         const btn = document.createElement('div');
         btn.className = 'gis-tool-btn';
         btn.id = tool.id;
-        btn.innerHTML = tool.icon;
+        // 增加背景色和边框样式确保可见
+        btn.style.width = '40px';
+        btn.style.height = '40px';
+        btn.style.backgroundColor = 'white';
+        btn.style.border = '1px solid #999';
+        btn.style.cursor = 'pointer';
+        btn.innerHTML = `<span style="pointer-events:none; font-style:normal; font-size:24px; line-height:40px;">${tool.icon}</span>`;
         btn.setAttribute('data-title', tool.title);
         
-        btn.onclick = function() {
+        btn.onclick = function(e) {
+            e.stopPropagation(); // 防止点击传透到地图
             // 如果需要互斥，这里可以先移除所有兄弟元素的 active 类
             // Array.from(toolbar.children).forEach(c => c.classList.remove('active'));
 
@@ -190,7 +218,8 @@ function initGISTools(map) {
         btn.id = toolConfig.id || ('gis-tool-' + Date.now());
         btn.innerHTML = toolConfig.icon || '🔧';
         btn.setAttribute('data-title', toolConfig.title || '新工具');
-        btn.onclick = function() {
+        btn.onclick = function(e) {
+             e.stopPropagation();
              this.classList.toggle('active');
              if (this.classList.contains('active')) {
                  if (typeof toolConfig.action === 'function') toolConfig.action();
@@ -199,20 +228,85 @@ function initGISTools(map) {
         toolbar.appendChild(btn);
     };
 
-    mapContainer.appendChild(toolbar);
 }
 
 
 
 function toggleMiningRiskTool(map) {
+    if (!map) return;
+    const layerId = 'mining-risk-layer';
+    
+    // 检查是否已存在图层
+    let layer = null;
+    if (typeof map.getLayers === 'function') {
+        layer = map.getLayers().getArray().find(l => l.get('id') === layerId);
+    }
+
+    if (layer) {
+        // 如果存在，切换可见性
+        const visible = !layer.getVisible();
+        layer.setVisible(visible);
+        console.log(`[GIS Tool] Mining risk layer visibility: ${visible}`);
+        // 可选：提示用户
+        // alert(visible ? "显示矿井图层" : "隐藏矿井图层");
+        return;
+    }
+
     console.log(">>> [Interface] 调用后端接口：获取矿井开采风险数据...");
-    // TODO: 实现后端请求逻辑
-    // fetch('/api/analysis/mining-risk', { method: 'POST', body: ... })
-    //     .then(res => res.json())
-    //     .then(data => {
-    //         // 在地图上渲染风险区域
-    //     });
-    alert("已启动：矿井开采风险预警模块\n(后端接口预留)");
+    
+    // 创建矢量源和图层
+    // 注意：假设后端运行在 5000 端口
+    const vectorSource = new ol.source.Vector({
+        url: 'http://127.0.0.1:5000/api/analysis/mining-risk',
+        format: new ol.format.GeoJSON()
+    });
+    
+    // 创建矢量图层
+    const vectorLayer = new ol.layer.Vector({
+        source: vectorSource,
+        style: new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({color: '#ff4d4f'}),
+                stroke: new ol.style.Stroke({color: 'white', width: 2})
+            }),
+            text: new ol.style.Text({
+                font: '12px Calibri,sans-serif',
+                fill: new ol.style.Fill({ color: '#000' }),
+                stroke: new ol.style.Stroke({ color: '#fff', width: 2 }),
+                offsetY: -10
+            })
+        })
+    });
+    
+    // 简单的样式函数，用于显示名称
+    vectorLayer.setStyle(function(feature) {
+        const style = vectorLayer.getStyle();
+        // 如果 vectorLayer.getStyle() 返回 style 对象
+        // 克隆并设置 text
+        // 这里简化处理，直接返回一个新的style或修改共有style(不推荐修改共有)
+        const name = feature.get('name');
+        return new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({color: '#ff4d4f'}),
+                stroke: new ol.style.Stroke({color: 'white', width: 2})
+            }),
+            text: new ol.style.Text({
+                text: name ? name : '',
+                font: '12px sans-serif',
+                fill: new ol.style.Fill({ color: '#000' }),
+                stroke: new ol.style.Stroke({ color: '#fff', width: 3 }),
+                offsetY: -12
+            })
+        });
+    });
+    
+    vectorLayer.set('id', layerId);
+    vectorLayer.set('title', '矿井分布');
+    
+    map.addLayer(vectorLayer);
+    alert("已加载矿井开采风险数据图层");
 }
 
 function toggleSubsidenceRiskTool(map) {

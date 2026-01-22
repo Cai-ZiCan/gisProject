@@ -8,6 +8,13 @@ const map = new ol.Map({
     view: new ol.View({ projection: 'EPSG:4326', center: [-118.15, 33.95], zoom: 9 })
 });
 
+// 确保 GIS 工具栏渲染（可多次调用，内部会清空容器）
+function renderGISToolbar() {
+    if (typeof initGISTools === 'function') {
+        initGISTools(map);
+    }
+}
+
 // 事件绑定
 document.addEventListener('DOMContentLoaded', function() {
     // 绑定图层控制开关
@@ -40,14 +47,39 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (err) {
         console.error("Error updating legend:", err);
     }
+
+    // 初始化 GIS 工具栏（再调用一次，保证 DOM 就绪时渲染）
+    renderGISToolbar();
     
     // 初始状态确认 (虽然 layers.js 中已经设置了 initial visible, 但这里再次确认逻辑一致性)
     wmsLayer1.setVisible(true);
     wmsLayer2.setVisible(true);
 
     // 初始化 GIS 分析模块 (如果有)
-    if (typeof GISAnalysis !== 'undefined' && GISAnalysis.init) {
+    if (typeof GISAnalysis !== 'undefined' && typeof GISAnalysis.init === 'function') {
         GISAnalysis.init(map);
+    } else if (typeof initGISAnalysis === 'function') {
+        initGISAnalysis(map);
+    }
+
+    // 添加 GIS 工具栏按钮
+    const toolbar = document.getElementById('gis-toolbar');
+    if (toolbar) {
+        const bufferBtn = document.createElement('button');
+        bufferBtn.className = 'gis-tool-btn';
+        bufferBtn.setAttribute('data-title', '缓冲区分析');
+        bufferBtn.innerHTML = '📐';
+        bufferBtn.onclick = function() {
+            GISAnalysis.showBufferDialog();
+        };
+        toolbar.appendChild(bufferBtn);
+        console.log('✅ 缓冲区工具按钮已添加');
+    } else {
+        console.error('❌ 未找到 gis-toolbar 容器');
     }
 
 });
+
+// 首次脚本加载时即尝试渲染，避免某些环境未触发 DOMContentLoaded 时工具栏缺失
+renderGISToolbar();
+console.log('Main.js loaded - Version 2026.01.20-Updated');
