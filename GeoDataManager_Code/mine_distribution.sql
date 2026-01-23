@@ -4,10 +4,11 @@
 
 -- 1.创建矿井信息表
 -- 内容：
--- 矿井ID、矿井名称(默认矿井名称不重复，若遇到问题需要检查)、矿井类型、矿井等级、经度、纬度、
+-- 矿井ID、矿井API、矿井名称(默认矿井名称不重复，若遇到问题需要检查)、矿井类型、矿井等级、经度、纬度、
 -- 开采状态、开采起始时间、开采结束时间（若已结束开采）、备注 等字段
 CREATE TABLE mine_info (
     mine_id SERIAL PRIMARY KEY,              -- 矿井ID
+    mine_api VARCHAR(50) UNIQUE NOT NULL,    -- 矿井API（美国矿井唯一标识）
     mine_name VARCHAR(100) NOT NULL,         -- 矿井名称
     mine_type VARCHAR(50),                    -- 矿井类型
     mine_level VARCHAR(20),                   -- 矿井等级
@@ -25,6 +26,8 @@ CHECK (
     (extraction_status != 'Stopped') OR 
     (extraction_status = 'Stopped' AND extraction_end_time IS NOT NULL)
 );
+
+-- DROP TABLE IF EXISTS mine_info;
 
 --2.创建插入矿井信息的存储过程
 -- 用于向mine_info表中插入新矿井信息

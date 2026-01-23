@@ -5,6 +5,11 @@ from psycopg2.extras import RealDictCursor
 import json
 import logging
 from bufferAnalysis import BufferAnalysisTool
+from getDataFromDB import (
+    extract_deformation_values_at_points,
+    extract_deformation_values_with_buffer,
+    get_deformation_raster_by_layer
+)
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -90,18 +95,149 @@ def get_layer_metadata(layer_name):
 # API: 获取矿区风险点数据，返回 GeoJSON 格式
 @app.route('/api/analysis/mining-risk', methods=['GET'])
 def get_mining_risk():
+    """
+    获取矿井/油井风险数据
+    参数:
+        - layer: 图层名称 (mine_info 或 oil_well_info)，默认 mine_info
+        - active_only: 是否仅返回活跃状态，true/false，默认 false
+    """
+    conn = None
+    try:
+        # 获取参数
+        layer_name = request.args.get('layer', 'mine_info')
+        active_only = request.args.get('active_only', 'false').lower() == 'true'
+        
+        # 验证图层名称（防止SQL注入）
+        allowed_layers = ['mine_info', 'oil_well_info']
+        if layer_name not in allowed_layers:
+            return jsonify({"error": "Invalid layer name"}), 400
+        
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # 根据图层类型构建不同的查询
+            if layer_name == 'mine_info':
+                sql = """
+                    SELECT 
+                        mine_id, mine_name, mine_type, mine_level, 
+                        longitude, latitude, extraction_status,
+                        ST_AsGeoJSON(ST_MakePoint(longitude, latitude)) as geom_json
+                    FROM mine_info
+                    WHERE 1=1
+                """
+                if active_only:
+                    sql += " AND extraction_status = 'Active'"
+                
+                cur.execute(sql)
+                rows = cur.fetchall()
+                
+                features = []
+                for row in rows:
+                    features.append({
+                        "type": "Feature",
+                        "properties": {
+                            "id": row['mine_id'],
+                            "name": row['mine_name'],
+                            "type": row['mine_type'],
+                            "level": row['mine_level'],
+                            "status": row['extraction_status']
+                        },
+                        "geometry": json.loads(row['geom_json']) if row['geom_json'] else None
+                    })
+                    
+            else:  # oil_well_info
+                sql = """
+                    SELECT 
+                        well_id, mine_api, mine_name, mine_type, mine_level,
+                        extraction_status, well_depth_ft, longitude, latitude,
+                        ST_AsGeoJSON(geom) as geom_json
+                    FROM oil_well_info
+                    WHERE geom IS NOT NULL
+                """
+                if active_only:
+                    sql += " AND extraction_status = 'Active'"
+                
+                cur.execute(sql)
+                rows = cur.fetchall()
+                
+                features = []
+                for row in rows:
+                    features.append({
+                        "type": "Feature",
+                        "properties": {
+                            "id": row['well_id'],
+                            "api": row['mine_api'],
+                            "name": row['mine_name'],
+                            "type": row['mine_type'],
+                            "status": row['extraction_status'],
+                            "depth_ft": row['well_depth_ft']
+                        },
+                        "geometry": json.loads(row['geom_json']) if row['geom_json'] else None
+                    })
+            
+            return jsonify({
+                "type": "FeatureCollection",
+                "features": features,
+                "count": len(features)
+            })
+            
+    except Exception as e:
+        logging.error(f"Error fetching mining risk: {e}")
+        # 如果表不存在，返回空集合而不是500，以免前端报错太难看
+        return jsonify({"type": "FeatureCollection", "features": [], "count": 0})
+    
+    finally:
+        if conn: conn.close()
+
+# API: 获取油井点位数据，返回 GeoJSON 格式，支持 BBOX 筛选
+@app.route('/api/oil-wells', methods=['GET'])
+def get_oil_wells():
+    """
+    获取油井信息表的数据，支持 bbox 参数筛选范围
+    参数: bbox=minx,miny,maxx,maxy (EPSG:4326)
+    返回: GeoJSON 格式
+    """
     conn = None
     try:
         conn = get_db_connection()
+        bbox = request.args.get('bbox')
+        
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            sql = """
+            # 基础 SQL
+            base_sql = """
                 SELECT 
-                    mine_id, mine_name, mine_type, mine_level, 
-                    longitude, latitude, extraction_status,
-                    ST_AsGeoJSON(ST_MakePoint(longitude, latitude)) as geom_json
-                FROM mine_info
+                    well_id, 
+                    mine_api, 
+                    mine_name, 
+                    mine_type, 
+                    mine_level,
+                    extraction_status, 
+                    well_depth_ft,
+                    longitude,
+                    latitude,
+                    ST_AsGeoJSON(geom) as geom_json
+                FROM oil_well_info
+                WHERE geom IS NOT NULL
             """
-            cur.execute(sql)
+            
+            params = []
+            
+            # 如果有 BBOX 参数，增加空间查询条件
+            if bbox:
+                try:
+                    # bbox 格式应为 minx,miny,maxx,maxy
+                    coords = [float(x) for x in bbox.split(',')]
+                    if len(coords) == 4:
+                        # 使用 && 操作符进行包围盒相交查询，利用空间索引
+                        base_sql += " AND geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
+                        params.extend(coords)
+                except ValueError:
+                    logging.warning(f"Invalid bbox parameter: {bbox}")
+            
+            # 添加排序
+            base_sql += " ORDER BY well_id"
+            
+            # 执行查询
+            cur.execute(base_sql, tuple(params))
             rows = cur.fetchall()
             
             features = []
@@ -109,25 +245,73 @@ def get_mining_risk():
                 features.append({
                     "type": "Feature",
                     "properties": {
-                        "id": row['mine_id'],
+                        "id": row['well_id'],
+                        "api": row['mine_api'],
                         "name": row['mine_name'],
                         "type": row['mine_type'],
-                        "status": row['extraction_status']
+                        "level": row['mine_level'],
+                        "status": row['extraction_status'],
+                        "depth_ft": float(row['well_depth_ft']) if row['well_depth_ft'] else None,
+                        "longitude": float(row['longitude']) if row['longitude'] else None,
+                        "latitude": float(row['latitude']) if row['latitude'] else None
                     },
                     "geometry": json.loads(row['geom_json']) if row['geom_json'] else None
                 })
             
             return jsonify({
                 "type": "FeatureCollection",
+                "count": len(features),
                 "features": features
             })
+            
     except Exception as e:
-        logging.error(f"Error fetching mining risk: {e}")
-        # 如果表不存在，返回空集合而不是500，以免前端报错太难看
-        return jsonify({"type": "FeatureCollection", "features": []})
-    
+        logging.error(f"Error fetching oil wells: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
         if conn: conn.close()
+
+# API: 获取油井统计信息
+@app.route('/api/oil-wells/stats', methods=['GET'])
+def get_oil_wells_stats():
+    """
+    获取油井数据的统计信息
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            sql = """
+                SELECT 
+                    COUNT(*) as total_count,
+                    COUNT(CASE WHEN extraction_status = 'Active' THEN 1 END) as active_count,
+                    COUNT(CASE WHEN extraction_status = 'Stopped' THEN 1 END) as stopped_count,
+                    COUNT(DISTINCT mine_type) as type_count,
+                    AVG(well_depth_ft) as avg_depth_ft,
+                    MAX(well_depth_ft) as max_depth_ft,
+                    MIN(well_depth_ft) as min_depth_ft
+                FROM oil_well_info
+            """
+            cur.execute(sql)
+            stats = cur.fetchone()
+            
+            return jsonify({
+                "status": "success",
+                "stats": {
+                    "total": stats['total_count'],
+                    "active": stats['active_count'],
+                    "stopped": stats['stopped_count'],
+                    "types": stats['type_count'],
+                    "avgDepth": float(stats['avg_depth_ft']) if stats['avg_depth_ft'] else 0,
+                    "maxDepth": float(stats['max_depth_ft']) if stats['max_depth_ft'] else 0,
+                    "minDepth": float(stats['min_depth_ft']) if stats['min_depth_ft'] else 0
+                }
+            })
+    except Exception as e:
+        logging.error(f"Error fetching oil well stats: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # API: 获取数据库中所有可用的空间图层列表
 @app.route('/api/layers/list', methods=['GET'])
@@ -290,6 +474,114 @@ def create_buffer_analysis():
             conn.close()
 # 缓冲区建立，调用backend/bufferAnalysis.py中的函数
 
+
+# API: 矿井形变风险分析 - 栅格矢量叠加分析
+@app.route('/api/mining-deformation-analysis', methods=['POST'])
+def mining_deformation_analysis():
+    """
+    矿井形变风险分析：提取矿井/油井位置的形变值，筛选高风险区域
+    
+    请求参数 (JSON):
+        - miningLayer: 矿井图层名称 ('oil_well_info' 或 'mine_info')
+        - deformationLayer: 形变图层名称（如 'v_mean_cropped_15_25'）
+        - threshold: 形变绝对值阈值 (mm/year)
+        - activeOnly: 是否仅包含活跃状态 (布尔值)
+        - bufferDistance: 可选，缓冲区距离
+        - bufferUnit: 可选，缓冲区单位 ('meters' 或 'kilometers')
+    
+    返回:
+        GeoJSON格式的特征集合，包含形变值信息
+    """
+    try:
+        # 获取请求参数
+        data = request.get_json()
+        
+        mining_layer = data.get('miningLayer')
+        deformation_layer = data.get('deformationLayer')
+        threshold = abs(float(data.get('threshold', 10.0)))  # 确保阈值为正数
+        active_only = data.get('activeOnly', False)
+        buffer_distance = data.get('bufferDistance')
+        buffer_unit = data.get('bufferUnit', 'meters')
+        
+        # 验证必需参数
+        if not mining_layer or not deformation_layer:
+            return jsonify({
+                "status": "error",
+                "message": "缺少必需参数: miningLayer 和 deformationLayer"
+            }), 400
+        
+        # 验证图层名称
+        if mining_layer not in ['oil_well_info', 'mine_info']:
+            return jsonify({
+                "status": "error",
+                "message": f"无效的矿井图层名称: {mining_layer}"
+            }), 400
+        
+        # 验证形变图层是否存在
+        raster_ids = get_deformation_raster_by_layer(deformation_layer)
+        if not raster_ids:
+            return jsonify({
+                "status": "error",
+                "message": f"形变图层不存在或没有数据: {deformation_layer}"
+            }), 404
+        
+        logging.info(f"Starting deformation analysis: layer={mining_layer}, "
+                    f"deformation={deformation_layer}, threshold={threshold}, "
+                    f"buffer={buffer_distance}")
+        
+        # 根据是否提供缓冲区距离选择不同的分析方法
+        if buffer_distance and float(buffer_distance) > 0:
+            # 使用缓冲区分析
+            features = extract_deformation_values_with_buffer(
+                layer_name=deformation_layer,
+                mining_layer=mining_layer,
+                active_only=active_only,
+                threshold=threshold,
+                buffer_distance=float(buffer_distance),
+                buffer_unit=buffer_unit
+            )
+        else:
+            # 使用点位分析
+            features = extract_deformation_values_at_points(
+                layer_name=deformation_layer,
+                mining_layer=mining_layer,
+                active_only=active_only,
+                threshold=threshold
+            )
+        
+        return jsonify({
+            "status": "success",
+            "message": f"分析完成，找到 {len(features)} 个高风险区域",
+            "featureCount": len(features),
+            "geojson": {
+                "type": "FeatureCollection",
+                "features": features
+            },
+            "analysisParams": {
+                "miningLayer": mining_layer,
+                "deformationLayer": deformation_layer,
+                "threshold": threshold,
+                "activeOnly": active_only,
+                "bufferDistance": buffer_distance,
+                "bufferUnit": buffer_unit
+            }
+        })
+        
+    except ValueError as e:
+        logging.error(f"Validation error in deformation analysis: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"参数验证失败: {str(e)}"
+        }), 400
+        
+    except Exception as e:
+        logging.error(f"Error in deformation analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": f"分析失败: {str(e)}"
+        }), 500
 
 
 if __name__ == '__main__':
