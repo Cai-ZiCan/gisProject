@@ -344,6 +344,18 @@ document.addEventListener('DOMContentLoaded', function() {
             GISAnalysis.showBufferDialog();
         };
         toolbar.appendChild(bufferBtn);
+
+        // 新增：清除缓冲区按钮
+        const clearBufferBtn = document.createElement('button');
+        clearBufferBtn.className = 'gis-tool-btn';
+        clearBufferBtn.setAttribute('data-title', '清除缓冲区');
+        clearBufferBtn.innerHTML = '🗑️';
+        clearBufferBtn.onclick = function() {
+            if (typeof GISAnalysis !== 'undefined' && GISAnalysis.clearBufferResult) {
+                GISAnalysis.clearBufferResult();
+            }
+        };
+        toolbar.appendChild(clearBufferBtn);
         console.log('✅ 缓冲区工具按钮已添加');
     } else {
         console.error('❌ 未找到 gis-toolbar 容器');

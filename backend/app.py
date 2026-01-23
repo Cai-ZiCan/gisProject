@@ -1,6 +1,7 @@
-from flask import Flask, jsonify, request  # 添加 request
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 import json
 import logging
@@ -418,13 +419,13 @@ def create_buffer_analysis():
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # 根据是否融合选择不同的查询策略
             if dissolve_type.upper() == 'ALL':
-                sql = f"""
+                sql_query = f"""
                     SELECT 
                         ST_AsGeoJSON({geometry_column}) as geom_json
                     FROM {output_table}
                 """
             else:
-                sql = f"""
+                sql_query = f"""
                     SELECT 
                         *,
                         ST_AsGeoJSON(buffer_geom) as buffer_geom_json
@@ -432,7 +433,7 @@ def create_buffer_analysis():
                     LIMIT 1000
                 """
             
-            cur.execute(sql)
+            cur.execute(sql_query)
             rows = cur.fetchall()
             
             features = []
@@ -473,6 +474,43 @@ def create_buffer_analysis():
         if conn:
             conn.close()
 # 缓冲区建立，调用backend/bufferAnalysis.py中的函数
+# API: 删除指定图层（用于清除临时缓冲区）
+@app.route('/api/analysis/delete-layer', methods=['POST'])
+def delete_layer():
+    """
+    删除指定的数据库表
+    请求体: {"tableName": "..."}
+    """
+    conn = None
+    try:
+        data = request.get_json()
+        table_name = data.get('tableName')
+        
+        if not table_name:
+            return jsonify({"status": "error", "message": "Missing tableName"}), 400
+            
+        # 简单验证表名安全性 (只允许字母数字下划线)
+        if not table_name.replace('_', '').isalnum():
+             return jsonify({"status": "error", "message": "Invalid table name"}), 400
+
+        conn = get_db_connection()
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            # 检查表是否存在
+            cur.execute("SELECT to_regclass(%s)", (table_name,))
+            if not cur.fetchone()[0]:
+                 return jsonify({"status": "error", "message": "Table not found"}), 404
+            
+            # 删除表
+            cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table_name)))
+            
+        return jsonify({"status": "success", "message": f"Table {table_name} deleted"})
+        
+    except Exception as e:
+        logging.error(f"Error deleting layer: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        if conn: conn.close()
 
 
 # API: 矿井形变风险分析 - 栅格矢量叠加分析

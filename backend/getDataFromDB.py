@@ -5,6 +5,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
+import json
 
 # 数据库配置
 DB_CONFIG = {
@@ -99,9 +100,9 @@ def extract_deformation_values_at_points(layer_name, mining_layer, active_only=F
                         ST_Value(r.rast, o.geom) as deformation_value
                     FROM oil_well_info o
                     CROSS JOIN annual_defo_raster r
-                    WHERE o.geom IS NOT NULL
-                        AND r.layer_name = %s
+                    WHERE r.layer_name = %s
                         AND ST_Intersects(r.rast, o.geom)
+                        AND o.geom IS NOT NULL
                 """
                 params = [layer_name]
                 
@@ -155,7 +156,7 @@ def extract_deformation_values_at_points(layer_name, mining_layer, active_only=F
                         "status": row['extraction_status'],
                         "deformation_value": float(row['deformation_value'])
                     },
-                    "geometry": eval(row['geom_json']) if row['geom_json'] else None
+                    "geometry": json.loads(row['geom_json']) if row['geom_json'] else None
                 }
                 
                 # 添加额外的属性
@@ -240,16 +241,30 @@ def extract_deformation_values_with_buffer(layer_name, mining_layer, active_only
                             b.extraction_status,
                             b.well_depth_ft,
                             b.geom,
-                            ST_Value(r.rast, b.geom) as point_deformation,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).mean as buffer_mean,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).max as buffer_max,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).min as buffer_min
+                            point_val.point_deformation,
+                            stats.buffer_mean,
+                            stats.buffer_max,
+                            stats.buffer_min
                         FROM buffered b
-                        CROSS JOIN annual_defo_raster r
-                        WHERE r.layer_name = %s
-                            AND ST_Intersects(r.rast, b.buffer_geom)
-                        GROUP BY b.well_id, b.mine_api, b.mine_name, b.mine_type, 
-                                 b.extraction_status, b.well_depth_ft, b.geom, r.rast
+                        CROSS JOIN LATERAL (
+                            SELECT ST_Value(r.rast, b.geom) as point_deformation
+                            FROM annual_defo_raster r
+                            WHERE r.layer_name = %s
+                                AND ST_Intersects(r.rast, b.geom)
+                            LIMIT 1
+                        ) point_val
+                        CROSS JOIN LATERAL (
+                            SELECT 
+                                (stats).mean as buffer_mean,
+                                (stats).max as buffer_max,
+                                (stats).min as buffer_min
+                            FROM (
+                                SELECT ST_SummaryStats(ST_Union(ST_Clip(r.rast, b.buffer_geom, true))) as stats
+                                FROM annual_defo_raster r
+                                WHERE r.layer_name = %s
+                                    AND ST_Intersects(r.rast, b.buffer_geom)
+                            ) s
+                        ) stats
                     )
                     SELECT 
                         well_id as id,
@@ -268,7 +283,7 @@ def extract_deformation_values_with_buffer(layer_name, mining_layer, active_only
                     WHERE GREATEST(ABS(buffer_max), ABS(buffer_min)) > %s
                 """
                 
-                params = [buffer_distance_m, layer_name, threshold]
+                params = [buffer_distance_m, layer_name, layer_name, threshold]
                 
             else:  # mine_info
                 sql = """
@@ -299,16 +314,30 @@ def extract_deformation_values_with_buffer(layer_name, mining_layer, active_only
                             b.mine_level,
                             b.extraction_status,
                             b.geom,
-                            ST_Value(r.rast, b.geom) as point_deformation,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).mean as buffer_mean,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).max as buffer_max,
-                            (ST_SummaryStats(ST_Clip(r.rast, b.buffer_geom, true))).min as buffer_min
+                            point_val.point_deformation,
+                            stats.buffer_mean,
+                            stats.buffer_max,
+                            stats.buffer_min
                         FROM buffered b
-                        CROSS JOIN annual_defo_raster r
-                        WHERE r.layer_name = %s
-                            AND ST_Intersects(r.rast, b.buffer_geom)
-                        GROUP BY b.mine_id, b.mine_name, b.mine_type, b.mine_level,
-                                 b.extraction_status, b.geom, r.rast
+                        CROSS JOIN LATERAL (
+                            SELECT ST_Value(r.rast, b.geom) as point_deformation
+                            FROM annual_defo_raster r
+                            WHERE r.layer_name = %s
+                                AND ST_Intersects(r.rast, b.geom)
+                            LIMIT 1
+                        ) point_val
+                        CROSS JOIN LATERAL (
+                            SELECT 
+                                (stats).mean as buffer_mean,
+                                (stats).max as buffer_max,
+                                (stats).min as buffer_min
+                            FROM (
+                                SELECT ST_SummaryStats(ST_Union(ST_Clip(r.rast, b.buffer_geom, true))) as stats
+                                FROM annual_defo_raster r
+                                WHERE r.layer_name = %s
+                                    AND ST_Intersects(r.rast, b.buffer_geom)
+                            ) s
+                        ) stats
                     )
                     SELECT 
                         mine_id as id,
@@ -326,7 +355,7 @@ def extract_deformation_values_with_buffer(layer_name, mining_layer, active_only
                     WHERE GREATEST(ABS(buffer_max), ABS(buffer_min)) > %s
                 """
                 
-                params = [buffer_distance_m, layer_name, threshold]
+                params = [buffer_distance_m, layer_name, layer_name, threshold]
             
             cur.execute(sql, params)
             rows = cur.fetchall()
@@ -339,13 +368,13 @@ def extract_deformation_values_with_buffer(layer_name, mining_layer, active_only
                         "id": row['id'],
                         "name": row['mine_name'],
                         "status": row['extraction_status'],
-                        "deformation_value": float(row['point_deformation']) if row['point_deformation'] else None,
-                        "buffer_mean": float(row['buffer_mean']) if row['buffer_mean'] else None,
-                        "buffer_max": float(row['buffer_max']) if row['buffer_max'] else None,
-                        "buffer_min": float(row['buffer_min']) if row['buffer_min'] else None,
-                        "max_abs_deformation": float(row['max_abs_deformation']) if row['max_abs_deformation'] else None
+                        "deformation_value": float(row['point_deformation']) if row.get('point_deformation') is not None else None,
+                        "buffer_mean": float(row['buffer_mean']) if row.get('buffer_mean') is not None else None,
+                        "buffer_max": float(row['buffer_max']) if row.get('buffer_max') is not None else None,
+                        "buffer_min": float(row['buffer_min']) if row.get('buffer_min') is not None else None,
+                        "max_abs_deformation": float(row['max_abs_deformation']) if row.get('max_abs_deformation') is not None else None
                     },
-                    "geometry": eval(row['geom_json']) if row['geom_json'] else None
+                    "geometry": json.loads(row['geom_json']) if row['geom_json'] else None
                 }
                 
                 # 添加额外的属性

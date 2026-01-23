@@ -4,6 +4,7 @@
 const GISAnalysis = {
     map: null,
     bufferLayer: null,  // 用于显示缓冲区结果的图层
+    lastBufferTable: null, // 记录最后生成的缓冲区表名
 
     // 初始化分析工具
     init: function(mapInstance) {
@@ -32,7 +33,7 @@ const GISAnalysis = {
     showBufferDialog: function() {
         // 创建对话框HTML
         const dialogHTML = `
-            <div id="buffer-dialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); 
+            <div id="analysis-buffer-dialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); 
                  background:white; padding:25px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); 
                  z-index:3000; min-width:400px; max-width:500px;">
                 <h3 style="margin:0 0 20px 0; color:#333; border-bottom:2px solid #1890ff; padding-bottom:10px;">
@@ -43,7 +44,7 @@ const GISAnalysis = {
                     <label style="display:block; margin-bottom:5px; font-weight:bold; color:#555;">
                         选择输入图层：
                     </label>
-                    <select id="buffer-input-layer" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    <select id="analysis-buffer-input-layer" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
                         <option value="">正在加载图层列表...</option>
                     </select>
                 </div>
@@ -53,9 +54,9 @@ const GISAnalysis = {
                         缓冲距离：
                     </label>
                     <div style="display:flex; gap:10px;">
-                        <input type="number" id="buffer-distance" value="1000" min="0" step="10"
+                        <input type="number" id="analysis-buffer-distance" value="1000" min="0" step="10"
                                style="flex:1; padding:8px; border:1px solid #ddd; border-radius:6px;">
-                        <select id="buffer-unit" style="width:100px; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                        <select id="analysis-buffer-unit" style="width:100px; padding:8px; border:1px solid #ddd; border-radius:6px;">
                             <option value="meters">米</option>
                             <option value="kilometers">千米</option>
                             <option value="degrees">度</option>
@@ -67,7 +68,7 @@ const GISAnalysis = {
                     <label style="display:block; margin-bottom:5px; font-weight:bold; color:#555;">
                         融合类型：
                     </label>
-                    <select id="buffer-dissolve" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    <select id="analysis-buffer-dissolve" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
                         <option value="NONE">不融合 (保留各要素独立缓冲区)</option>
                         <option value="ALL">全部融合 (合并所有重叠区域)</option>
                     </select>
@@ -77,13 +78,13 @@ const GISAnalysis = {
                     <label style="display:block; margin-bottom:5px; font-weight:bold; color:#555;">
                         末端类型 (仅线要素)：
                     </label>
-                    <select id="buffer-endtype" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+                    <select id="analysis-buffer-endtype" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
                         <option value="ROUND">圆形末端</option>
                         <option value="FLAT">平面末端</option>
                     </select>
                 </div>
                 
-                <div id="buffer-status" style="margin-bottom:15px; padding:10px; border-radius:6px; display:none;"></div>
+                <div id="analysis-buffer-status" style="margin-bottom:15px; padding:10px; border-radius:6px; display:none;"></div>
                 
                 <div style="display:flex; gap:10px; justify-content:flex-end;">
                     <button onclick="GISAnalysis.closeBufferDialog()" 
@@ -98,18 +99,18 @@ const GISAnalysis = {
                     </button>
                 </div>
             </div>
-            <div id="buffer-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; 
+            <div id="analysis-buffer-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; 
                  background:rgba(0,0,0,0.5); z-index:2999;" onclick="GISAnalysis.closeBufferDialog()"></div>
         `;
         
         // 添加到页面
-        if (!document.getElementById('buffer-dialog')) {
+        if (!document.getElementById('analysis-buffer-dialog')) {
             document.body.insertAdjacentHTML('beforeend', dialogHTML);
         }
         
         // 显示对话框
-        document.getElementById('buffer-dialog').style.display = 'block';
-        document.getElementById('buffer-overlay').style.display = 'block';
+        document.getElementById('analysis-buffer-dialog').style.display = 'block';
+        document.getElementById('analysis-buffer-overlay').style.display = 'block';
         
         // 加载图层列表
         this.loadAvailableLayers();
@@ -118,7 +119,7 @@ const GISAnalysis = {
     // 加载可用图层列表
     loadAvailableLayers: function() {
         const baseUrl = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : 'http://localhost:5000';
-        const select = document.getElementById('buffer-input-layer');
+        const select = document.getElementById('analysis-buffer-input-layer');
         
         fetch(`${baseUrl}/api/layers/list`)
             .then(response => response.json())
@@ -145,13 +146,13 @@ const GISAnalysis = {
 
     // 执行缓冲区分析
     executeBufferAnalysis: function() {
-        const layerSelect = document.getElementById('buffer-input-layer');
+        const layerSelect = document.getElementById('analysis-buffer-input-layer');
         const inputLayer = layerSelect.value;
-        const distance = parseFloat(document.getElementById('buffer-distance').value);
-        const unit = document.getElementById('buffer-unit').value;
-        const dissolveType = document.getElementById('buffer-dissolve').value;
-        const endType = document.getElementById('buffer-endtype').value;
-        const statusDiv = document.getElementById('buffer-status');
+        const distance = parseFloat(document.getElementById('analysis-buffer-distance').value);
+        const unit = document.getElementById('analysis-buffer-unit').value;
+        const dissolveType = document.getElementById('analysis-buffer-dissolve').value;
+        const endType = document.getElementById('analysis-buffer-endtype').value;
+        const statusDiv = document.getElementById('analysis-buffer-status');
         
         // 验证输入
         if (!inputLayer) {
@@ -190,6 +191,7 @@ const GISAnalysis = {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
+                this.lastBufferTable = data.outputTable; // 记录表名以便清除
                 this.showStatus(
                     `✅ ${data.message}<br>共生成 ${data.featureCount} 个缓冲区要素`, 
                     'success'
@@ -241,7 +243,7 @@ const GISAnalysis = {
 
     // 显示状态消息
     showStatus: function(message, type) {
-        const statusDiv = document.getElementById('buffer-status');
+        const statusDiv = document.getElementById('analysis-buffer-status');
         if (!statusDiv) return;
         
         statusDiv.style.display = 'block';
@@ -262,10 +264,47 @@ const GISAnalysis = {
         }
     },
 
+    // 清除缓冲区结果
+    clearBufferResult: function() {
+        if (this.bufferLayer) {
+            this.bufferLayer.getSource().clear();
+            console.log("Visual buffer results cleared");
+        }
+        
+        // 如果有记录的临时表，从数据库中删除
+        if (this.lastBufferTable) {
+            const tableName = this.lastBufferTable;
+            console.log(`Deleting temporary buffer table from DB: ${tableName}`);
+            
+            const baseUrl = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : 'http://localhost:5000';
+            
+            fetch(`${baseUrl}/api/analysis/delete-layer`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tableName: tableName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log(`Table ${tableName} deleted successfully.`);
+                    this.showStatus('缓冲区已清除（包括数据库临时表）', 'success');
+                    this.lastBufferTable = null;
+                } else {
+                    console.warn(`Failed to delete table: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting table:', error);
+            });
+        }
+    },
+
     // 关闭对话框
     closeBufferDialog: function() {
-        const dialog = document.getElementById('buffer-dialog');
-        const overlay = document.getElementById('buffer-overlay');
+        const dialog = document.getElementById('analysis-buffer-dialog');
+        const overlay = document.getElementById('analysis-buffer-overlay');
         if (dialog) dialog.style.display = 'none';
         if (overlay) overlay.style.display = 'none';
     }
